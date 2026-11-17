@@ -7,8 +7,9 @@ import { formatLong } from '../dates.js';
 import { TYPES } from '../store.js';
 
 const ICONS = { travail: Hammer, rdv: CalendarClock, journal: NotebookPen };
+const SHORT = { travail: 'Travail', rdv: 'RDV', journal: 'Fait' };
 
-export default function VoiceCapture({ onCreate, onUndo, onOpen }) {
+export default function VoiceCapture({ onCreate, onUndo, onOpen, onChangeType }) {
   const [text, setText] = useState('');
   const [partial, setPartial] = useState('');
   const [dictation, setDictation] = useState(null);
@@ -125,6 +126,23 @@ export default function VoiceCapture({ onCreate, onUndo, onOpen }) {
                     <span className="vi-title">{i.title}</span>
                     <span className="vi-meta">{TYPES[i.type].label} · {formatLong(i.date)}{i.time ? ` à ${i.time}` : ''}{i.location ? ` · ${i.location}` : ''}</span>
                   </button>
+                  <div className="vi-types" role="radiogroup" aria-label="Corriger le type">
+                    {Object.entries(TYPES).map(([k, t]) => (
+                      <button
+                        key={k}
+                        type="button"
+                        role="radio"
+                        aria-checked={i.type === k}
+                        className={i.type === k ? 'active' : ''}
+                        style={{ '--tc': t.color }}
+                        onClick={() => {
+                          if (i.type === k) return;
+                          onChangeType(result.ids[n], k);
+                          setResult((r) => ({ ...r, items: r.items.map((it, j) => (j === n ? { ...it, type: k } : it)) }));
+                        }}
+                      >{SHORT[k]}</button>
+                    ))}
+                  </div>
                 </li>
               );
             })}

@@ -142,6 +142,14 @@ export default function App() {
     return created.map((i) => i.id);
   };
 
+  const changeType = (id, type) => {
+    const it = stateRef.current.items.find((i) => i.id === id);
+    if (!it) return;
+    const next = { ...it, type, validated: type === 'journal' ? false : it.validated, validatedAt: type === 'journal' ? null : it.validatedAt };
+    push({ op: 'upsert', items: [next] });
+    update((list) => list.map((i) => (i.id === id ? next : i)));
+  };
+
   const removeIds = (ids) => {
     push({ op: 'delete', ids });
     update((list) => list.filter((i) => !ids.includes(i.id)));
@@ -248,7 +256,7 @@ export default function App() {
         <Stat icon={AlertTriangle} label="En retard" value={stats.late} tone={stats.late ? 'late' : ''} />
       </div>
 
-      <VoiceCapture onCreate={createFromVoice} onUndo={removeIds} onOpen={openItem} />
+      <VoiceCapture onCreate={createFromVoice} onUndo={removeIds} onOpen={openItem} onChangeType={changeType} />
 
       <main className="layout">
         <div className="col-main">

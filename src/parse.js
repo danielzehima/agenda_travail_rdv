@@ -9,8 +9,35 @@ const WEEKDAYS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi',
 const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 const MONTHS_PLAIN = MONTHS.map((m) => m.normalize('NFD').replace(/[̀-ͯ]/g, ''));
 
-const RDV = /\b(rendez[- ]vous|rdv|réunion|reunion|rencontre|visite|rencontrer|voir|appeler|appel|livraison)\b/i;
-const DONE = /^(j'ai|j’ai|nous avons|on a)\b|\b(terminée?s?|finie?s?|achevée?s?|réalisée?s?|faite?s?|posée?s?|coulée?s?|livrée?s?)\b/i;
+// Mot entier, y compris avec des lettres accentuées (\b ne les gère pas en JS)
+const words = (list) => new RegExp(`(?<!\\p{L})(?:${list})(?!\\p{L})`, 'iu');
+
+// Rendez-vous certains
+const RDV_STRONG_LIST = "rendez[- ]vous|rdv|réunions?|reunions?|rencontre|rencontrer|visites?|entretien|point avec|point de chantier|comité de chantier|réception des travaux";
+const RDV_STRONG = words(RDV_STRONG_LIST);
+// Rendez-vous seulement s'il y a une heure (sinon c'est une tâche)
+const RDV_WEAK = words("appeler|appel|téléphoner|voir|livraisons?|passage|venue|vient|viennent|arrive|arrivent|réception|expert|architecte|client|maître d'ouvrage|bureau de contrôle");
+// Travaux de chantier (verbes et noms)
+const WORK = words([
+  "couler", "coulage", "poser", "pose", "coffrer", "coffrage", "ferrailler", "ferraillage", "maçonner", "maçonnerie",
+  "monter", "montage", "peindre", "peinture", "carreler", "carrelage", "installer", "installation", "démolir", "démolition",
+  "terrasser", "terrassement", "creuser", "fouilles?", "commander", "commande", "acheter", "achat", "nettoyer", "nettoyage",
+  "vérifier", "vérification", "contrôler", "réparer", "réparation", "préparer", "préparation", "enduire", "enduit",
+  "isoler", "isolation", "bétonner", "décharger", "implanter", "implantation", "remblayer", "remblai", "étancher",
+  "étanchéité", "plomberie", "électricité", "câbler", "câblage", "charpente", "toiture", "couverture", "crépir",
+  "crépi", "chape", "dalle", "fondations?", "murs?", "cloisons?", "placo", "menuiseries?", "fenêtres?", "portes?",
+  "envoyer", "faire", "finir", "terminer", "changer", "remplacer", "boucher", "tracer", "niveler",
+].join('|'));
+// Passé : ce qui a déjà été fait
+const PAST_PARTICIPLE = words("terminée?s?|finie?s?|achevée?s?|réalisée?s?|faite?s?|posée?s?|coulée?s?|livrée?s?|installée?s?|montée?s?|reçue?s?|nettoyée?s?|vérifiée?s?|coffrée?s?|ferraillée?s?|peinte?s?|démolie?s?|creusée?s?|réparée?s?|commandée?s?|effectuée?s?");
+const PAST_START = /^(?:hier\s+|ce matin\s+|aujourd'hui\s+)?(?:j['’]ai|on a|nous avons|il a|elle a|ils ont|elles ont)\s+(?!(?:un |une )?(?:rendez[- ]vous|rdv|réunion|visite|entretien|rencontre|à |besoin|prévu))/iu;
+// Début d'une nouvelle idée (pour couper « … et … » quand la dictée n'a pas de ponctuation)
+const NEW_CLAUSE = new RegExp(
+  `^(?:(?:demain|aujourd'hui|après-demain|hier|ce matin|ce soir|cet après-midi|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|le \\d{1,2}|à \\d{1,2}|vers \\d{1,2}|\\d{1,2}\\s*h)(?!\\p{L})`
+  + `|(?:j['’]ai|je dois|je vais|il faut|on doit|on a|nous avons|nous devons|penser à|rappelle)(?!\\p{L})`
+  + `|(?:un |une |la |le |les |l['’]|du |des )?(?:${RDV_STRONG_LIST})(?!\\p{L}))`,
+  'iu',
+);
 
 const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 
@@ -96,36 +123,73 @@ function clean(s, parts) {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
-function parseSentence(s, now) {
+function classify(s, key, today, hasTime) {
+  if (key <= today && (PAST_START.test(s) || PAST_PARTICIPLE.test(s))) return 'journal';
+  if (RDV_STRONG.test(s)) return 'rdv';
+  if (hasTime && RDV_WEAK.test(s) && !WORK.test(s.replace(RDV_WEAK, ''))) return 'rdv';
+  return 'travail';
+}
+
+function parseSentence(s, now, inheritedDate) {
   const d = findDate(s, now);
   const t = findTime(s);
-  const date = d ? d.date : now;
+  const date = d ? d.date : inheritedDate || now;
   const key = toKey(date);
-  const past = key < toKey(now);
+  const type = classify(s, key, toKey(now), Boolean(t));
 
-  let type = 'travail';
-  if (DONE.test(s) && !(key > toKey(now))) type = 'journal';
-  else if (RDV.test(s) && !past) type = 'rdv';
+  const loc = s.match(/(?<!\p{L})avec\s+((?:l['’]\s*|le |la |les |m\. |mme |monsieur |madame )?[\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+)*)/iu);
 
-  const loc = s.match(/\bavec\s+((?:l['’]\s*|le |la |les |m\. |mme |monsieur |madame )?[\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+)*)/iu);
-
-  const title = clean(s, [d?.match, t?.match]);
+  let title = clean(s, [d?.match, t?.match]);
+  // « j'ai rendez-vous avec… » → « Rendez-vous avec… »
+  if (type === 'rdv') title = title.replace(/^(?:j['’]ai|on a|nous avons|il y a)\s+(?:un |une )?/iu, '');
+  title = title.replace(/^(?:et|puis|ensuite)\s+/iu, '');
+  title = title.charAt(0).toUpperCase() + title.slice(1);
   if (!title) return null;
   return {
-    type,
-    title,
-    date: key,
-    time: t ? t.time : '',
-    location: type === 'journal' || !loc ? '' : loc[1].trim(),
-    notes: '',
+    item: {
+      type,
+      title,
+      date: key,
+      time: t ? t.time : '',
+      location: type === 'journal' || !loc ? '' : loc[1].trim(),
+      notes: '',
+    },
+    date: d ? d.date : inheritedDate,
   };
 }
 
-export function parseNote(text, now = new Date()) {
-  return text
-    .split(/[.;!?\n]+|\s+(?:puis|ensuite|et après)\s+/i)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 2)
-    .map((s) => parseSentence(s, now))
+// Découpe une dictée sans ponctuation en idées séparées.
+export function splitNote(text) {
+  const parts = text
+    .split(/[.;!?\n]+|\s+(?:puis|ensuite|et après|après ça|et aussi|et ensuite)\s+|,\s+(?=\S)/iu)
+    .map((x) => x.trim())
     .filter(Boolean);
+  const out = [];
+  for (const part of parts) {
+    // Coupe sur « et » seulement si la suite commence une nouvelle idée
+    const pieces = part.split(/\s+et\s+/iu);
+    let cur = pieces[0];
+    for (const next of pieces.slice(1)) {
+      if (NEW_CLAUSE.test(next) || (WORK.test(cur) && RDV_STRONG.test(next)) || (RDV_STRONG.test(cur) && WORK.test(next) && /^(?:\p{L}+er|\p{L}+ir)\s/iu.test(next))) {
+        out.push(cur);
+        cur = next;
+      } else {
+        cur += ` et ${next}`;
+      }
+    }
+    out.push(cur);
+  }
+  return out.filter((x) => x.replace(/\s/g, '').length > 2);
+}
+
+export function parseNote(text, now = new Date()) {
+  const items = [];
+  let inherited = null;
+  for (const sentence of splitNote(text)) {
+    const r = parseSentence(sentence, now, inherited);
+    if (!r) continue;
+    items.push(r.item);
+    inherited = r.date; // « demain … puis réunion à 16h » → la réunion est aussi demain
+  }
+  return items;
 }
