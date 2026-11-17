@@ -67,3 +67,12 @@ test('réglages', async () => {
   r = await call(settings);
   assert.deepEqual(r.data.settings, { siteName: 'Les Acacias', morningHour: 6 });
 });
+
+test('diagnostic', async () => {
+  const { default: health } = await import('./health.js');
+  process.env.DATABASE_URL = 'postgresql://test';
+  const r = await call(health);
+  assert.equal(r.data.database, 'ok');
+  assert.equal(r.data.password, 'configuré');
+  assert.equal(typeof r.data.items, 'number');
+});
