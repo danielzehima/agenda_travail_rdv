@@ -98,3 +98,42 @@ test('passé sans « j’ai »', () => {
 test('trois idées dans une seule dictée', () => {
   assert.deepEqual(kinds("ce matin on a posé les parpaings et cet après-midi réunion avec le maître d'ouvrage à 15h et demain commander le sable").map((i) => i[0]), ['journal', 'rdv', 'travail']);
 });
+
+// Dictée réelle de l'utilisateur (17/11/2026)
+const REAL = "demain à partir de 8h j'ai du sable à faire monter au 5è étage, ensuite à partir de 10h j'ai la chape à poser. l'après midi j'ai une réunion avec mon patron. je dois lui rappeler les outils à envoyer sur le chantier pour demain à 8h";
+
+function checkReal(text) {
+  const items = parseNote(text, now);
+  assert.deepEqual(items.map((i) => [i.type, i.title, i.date, i.time]), [
+    ['travail', 'Faire monter du sable au 5è étage', '2026-11-18', '08:00'],
+    ['travail', 'Poser la chape', '2026-11-18', '10:00'],
+    ['rdv', 'Réunion avec mon patron', '2026-11-18', '14:00'],
+  ]);
+  assert.equal(items[2].location, 'mon patron');
+  assert.match(items[2].notes, /rappeler les outils à envoyer sur le chantier pour demain à 8h/i);
+}
+
+test('dictée réelle avec ponctuation', () => checkReal(REAL));
+test('dictée réelle sans ponctuation (micro Chrome)', () => checkReal(REAL.replace(/[.,]/g, '')));
+
+test('« à partir de », « dès », « vers »', () => {
+  assert.equal(parseNote('dès 7h30 décharger le camion', now)[0].time, '07:30');
+  assert.equal(parseNote('vers 9h appeler le grutier', now)[0].type, 'rdv');
+  assert.equal(parseNote('vers 9h appeler le grutier', now)[0].title, 'Appeler le grutier');
+});
+
+test('après-midi : 14h par défaut, « 3h de l’après-midi » = 15h', () => {
+  assert.equal(parseNote("cet après-midi visite de l'architecte", now)[0].time, '14:00');
+  assert.equal(parseNote("l'après-midi à 3h réunion de chantier", now)[0].time, '15:00');
+  assert.equal(parseNote('rendez-vous à midi avec le client', now)[0].time, '12:00');
+});
+
+test('« j’ai X à faire » aujourd’hui est un travail, pas un fait du jour', () => {
+  assert.deepEqual(parseNote("j'ai les murs à peindre", now).map((i) => [i.type, i.title]), [['travail', 'Peindre les murs']]);
+});
+
+test('« pour demain à 10h » sur un rendez-vous fixe sa date et son heure', () => {
+  assert.deepEqual(parseNote('rendez-vous pour demain à 10h avec le plombier', now).map((i) => [i.type, i.title, i.date, i.time]), [
+    ['rdv', 'Rendez-vous avec le plombier', '2026-11-18', '10:00'],
+  ]);
+});

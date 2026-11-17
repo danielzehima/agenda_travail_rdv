@@ -93,28 +93,37 @@ function findDate(s, now) {
   return null;
 }
 
+const AFTERNOON = /(?:(?:de\s+|dans\s+)?l['’]\s*|cet\s+|en\s+)?après[- ]midi/iu;
+
 function findTime(s) {
-  if (/(?:à\s+)?\bmidi\b/i.test(s) && !/après-midi/i.test(s)) return { time: '12:00', match: s.match(/(?:à\s+)?\bmidi\b/i)[0] };
-  const m = s.match(/(?:(?:^|\s)(?:à|a|vers|pour)\s+)?\b(\d{1,2})\s*(?:h|heures?|:)\s*(\d{2}|et demie|et quart|moins le quart)?/i);
-  if (!m) return null;
-  let h = Number(m[1]);
-  let min = 0;
-  const tail = (m[2] || '').toLowerCase();
-  if (tail === 'et demie') min = 30;
-  else if (tail === 'et quart') min = 15;
-  else if (tail === 'moins le quart') { h -= 1; min = 45; }
-  else if (tail) min = Number(tail);
-  if (/\b(de l'après-midi|du soir)\b/i.test(s) && h < 12) h += 12;
-  if (h > 23 || min > 59) return null;
-  return { time: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`, match: m[0] };
+  const m = s.match(/(?:(?:^|\s)(?:à partir de|à partir d['’]|dès|vers|aux alentours de|à|a|pour)\s+)?(?<!\d)(\d{1,2})\s*(?:h|heures?|:)\s*(\d{2}|et demie|et quart|moins le quart)?(?!\p{L})/iu);
+  if (m) {
+    let h = Number(m[1]);
+    let min = 0;
+    const tail = (m[2] || '').toLowerCase();
+    if (tail === 'et demie') min = 30;
+    else if (tail === 'et quart') min = 15;
+    else if (tail === 'moins le quart') { h -= 1; min = 45; }
+    else if (tail) min = Number(tail);
+    if ((AFTERNOON.test(s) || /(?<!\p{L})du soir(?!\p{L})/iu.test(s)) && h < 12) h += 12;
+    if (h > 23 || min > 59) return null;
+    return { time: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`, match: m[0] };
+  }
+  const pm = s.match(AFTERNOON);
+  if (pm) return { time: '14:00', match: pm[0] };
+  const noon = s.match(/(?:à\s+)?(?<![\p{L}-])midi(?!\p{L})/iu);
+  if (noon && !/après[- ]midi/iu.test(s)) return { time: '12:00', match: noon[0] };
+  return null;
 }
 
 function clean(s, parts) {
   let t = s;
   for (const p of parts) if (p) t = t.replace(p, ' ');
   t = t
-    .replace(/\b(ce matin|ce soir|cet après-midi|de l'après-midi|du soir)\b/gi, ' ')
+    .replace(/(?<!\p{L})(ce matin|le matin|ce soir|le soir|du soir|ensuite|puis)(?!\p{L})/giu, ' ')
+    .replace(AFTERNOON, ' ')
     .replace(/^\s*(il faut|je dois|on doit|penser à|pense à|rappelle-moi de|rappelle moi de|note que|noter que|ajoute|ajouter)\s+/i, '')
+    .replace(/(?<!\p{L})(?:pour|prévue?s?)(?=\s+(?:avec|chez|au|à la)(?!\p{L})|\s*$)/giu, ' ')
     .replace(/\s+([,.])/g, '$1')
     .replace(/\s{2,}/g, ' ')
     .replace(/^[\s,.:;-]+|[\s,.:;-]+$/g, '')
@@ -123,23 +132,41 @@ function clean(s, parts) {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
+const OBLIGATION = /^(?:j['’]ai|on a|nous avons|il y a)\s+(.+?)\s+à\s+((?:faire\s+)?\p{L}+(?:er|ir|re))(?!\p{L})/iu;
+
 function classify(s, key, today, hasTime) {
-  if (key <= today && (PAST_START.test(s) || PAST_PARTICIPLE.test(s))) return 'journal';
+  const core = s.replace(/^(?:\S+\s+){0,4}?(?=(?:j['’]ai|on a|nous avons|il y a)\s)/iu, '');
+  const obligation = OBLIGATION.test(core);
+  if (key <= today && !obligation && (PAST_START.test(core) || PAST_PARTICIPLE.test(s))) return 'journal';
   if (RDV_STRONG.test(s)) return 'rdv';
   if (hasTime && RDV_WEAK.test(s) && !WORK.test(s.replace(RDV_WEAK, ''))) return 'rdv';
   return 'travail';
 }
 
+const DEADLINE = new RegExp(
+  `\\s+pour\\s+(?:demain|après[- ]demain|aujourd['’]hui|ce soir|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|le\\s+\\d{1,2}(?:er)?(?:\\s+\\p{L}+)?)(?:\\s+(?:à|a|vers)?\\s*\\d{1,2}\\s*h(?:\\s*\\d{2})?)?`,
+  'iu',
+);
+const SENDS = words('envoyer|apporter|prévoir|livrer|rappeler|préparer|commander|amener|ramener');
+
 function parseSentence(s, now, inheritedDate) {
+  // « …outils à envoyer pour demain à 8h » : c'est une échéance, gardée dans le texte
+  const dl = s.match(DEADLINE);
+  const deadline = dl && SENDS.test(s.slice(0, dl.index)) && !RDV_STRONG.test(s.slice(0, dl.index)) ? dl[0].trim() : '';
+  const full = s;
+  if (deadline) s = s.replace(dl[0], ' ');
   const d = findDate(s, now);
   const t = findTime(s);
   const date = d ? d.date : inheritedDate || now;
   const key = toKey(date);
-  const type = classify(s, key, toKey(now), Boolean(t));
+  const type = classify(full, key, toKey(now), Boolean(t));
 
-  const loc = s.match(/(?<!\p{L})avec\s+((?:l['’]\s*|le |la |les |m\. |mme |monsieur |madame )?[\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+)*)/iu);
+  const loc = s.match(/(?<!\p{L})avec\s+((?:l['’]\s*|le |la |les |mon |ma |mes |notre |nos |son |sa |ses |leur |m\. |mme |monsieur |madame )?[\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+)*)/iu);
 
   let title = clean(s, [d?.match, t?.match]);
+  // « j'ai la chape à poser » → « Poser la chape »
+  title = title.replace(/^(?:j['’]ai|on a|nous avons|il y a)\s+(.+?)\s+à\s+((?:faire\s+)?\p{L}+(?:er|ir|re))(?=\s|$)(.*)$/iu, (_, obj, verb, rest) => `${verb} ${obj}${rest}`);
+  if (deadline) title = `${title} ${deadline}`;
   // « j'ai rendez-vous avec… » → « Rendez-vous avec… »
   if (type === 'rdv') title = title.replace(/^(?:j['’]ai|on a|nous avons|il y a)\s+(?:un |une )?/iu, '');
   title = title.replace(/^(?:et|puis|ensuite)\s+/iu, '');
@@ -156,6 +183,27 @@ function parseSentence(s, now, inheritedDate) {
     },
     date: d ? d.date : inheritedDate,
   };
+}
+
+const CLAUSE_START = /(?<=\s)(?=(?:je dois|il faut|on doit|j['’]ai|on a|nous avons|l['’]\s*après[- ]midi|cet après[- ]midi|le matin|ce soir|demain|après-demain)(?!\p{L}))/giu;
+const FILLER = /(?<!\p{L})(?:et|ensuite|puis|à partir de|à partir d['’]|dès|vers|à|a|de|du|le|la|l['’]|matin|soir|après[- ]midi|demain|aujourd['’]hui|\d{1,2}\s*h(?:\s*\d{2})?)(?!\p{L})/giu;
+const DANGLING = /(?<!\p{L})(?:pour|à|a|de|d['’]|le|la|les|du|des|au|aux|avant|d['’]ici|jusqu['’]à)\s*$/iu;
+const contentWords = (x) => (x.replace(FILLER, ' ').match(/\p{L}{2,}/gu) || []).length;
+
+// Coupe « … j'ai la chape à poser l'après midi j'ai une réunion … » en idées
+function splitClauses(part) {
+  const pieces = part.split(CLAUSE_START).map((x) => x.trim()).filter(Boolean);
+  const out = [];
+  let cur = '';
+  for (const piece of pieces) {
+    cur = cur ? `${cur} ${piece}` : piece;
+    if (contentWords(cur) >= 2 && !DANGLING.test(cur)) { out.push(cur); cur = ''; }
+  }
+  if (cur) {
+    if (out.length && contentWords(cur) < 2) out[out.length - 1] += ` ${cur}`;
+    else out.push(cur);
+  }
+  return out;
 }
 
 // Découpe une dictée sans ponctuation en idées séparées.
@@ -179,13 +227,21 @@ export function splitNote(text) {
     }
     out.push(cur);
   }
-  return out.filter((x) => x.replace(/\s/g, '').length > 2);
+  return out.flatMap(splitClauses).filter((x) => x.replace(/\s/g, '').length > 2);
 }
 
 export function parseNote(text, now = new Date()) {
   const items = [];
   let inherited = null;
   for (const sentence of splitNote(text)) {
+    // « je dois lui rappeler … » juste après un rendez-vous : à dire pendant ce rendez-vous
+    const prev = items[items.length - 1];
+    const followUp = sentence.match(/^(?:je dois|il faut|on doit|penser à)?\s*(?:lui|leur)\s+(.+)$/iu);
+    if (followUp && prev?.type === 'rdv') {
+      const note = `${followUp[0].replace(/^(?:je dois|il faut|on doit|penser à)\s+/iu, '')}`;
+      prev.notes = prev.notes ? `${prev.notes}\n${note}` : note.charAt(0).toUpperCase() + note.slice(1);
+      continue;
+    }
     const r = parseSentence(sentence, now, inherited);
     if (!r) continue;
     items.push(r.item);
