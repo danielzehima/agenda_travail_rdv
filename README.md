@@ -1,38 +1,54 @@
 # Agenda Chantier
 
-Calendrier de chantier avec un assistant de rappel.
+Calendrier de chantier avec un assistant de rappel et une saisie vocale.
+Les données sont enregistrées en ligne dans une base **Neon** (PostgreSQL),
+via un petit serveur hébergé sur **Vercel**.
 
-- **Calendrier mensuel** : chaque jour montre ses travaux, rendez-vous et notes ;
-  les jours avec des éléments non validés passent en rouge une fois dépassés.
-- **Trois types d'éléments** : *Travail*, *Rendez-vous* (heure obligatoire) et
-  *Fait du jour* (journal de ce qui a été réalisé).
+## Fonctions
+
+- **Calendrier mensuel** : travaux, rendez-vous et notes « Fait du jour » ;
+  les jours passés avec des éléments non validés passent en rouge.
 - **Validation** au fur et à mesure, avec la date et l'heure de validation.
-- **Assistant de rappel** (`src/agent.js`), réévalué toutes les 30 secondes :
-  - rendez-vous imminent (délai réglable, 60 min par défaut), puis rendez-vous passé à valider ;
-  - briefing du matin (7 h par défaut) ;
-  - en fin de journée (17 h par défaut) : éléments restant à valider + rappel de noter la journée ;
-  - éléments en retard des jours précédents.
-  
-  Notifications système une seule fois par rappel (cloche dans l'assistant).
-- **Saisie vocale** : « Dites-le à l'assistant » — on dicte (micro de l'app ou du clavier), l'assistant crée les éléments (Claude si disponible, sinon analyseur local `src/parse.js`).
-- **Réglages** : nom du chantier, horaires de l'assistant, export/import JSON.
+- **Saisie vocale** « Dites-le à l'assistant » : on dicte, l'assistant crée les éléments
+  (date, heure, type). Micro de l'app (reconnaissance vocale du navigateur) ou micro du clavier.
+- **Assistant de rappel** (`src/agent.js`) : rendez-vous imminents, briefing du matin,
+  validation de fin de journée, retards.
+- **Synchronisation** (`src/sync.js`) : chaque modification part au serveur ;
+  sans réseau, elle attend sur le téléphone et repart automatiquement.
+  Les mêmes données sont visibles depuis tous vos appareils.
+- **Mot de passe** pour protéger l'agenda (variable `APP_PASSWORD`).
 
-## Lancer
+## Mise en ligne (Vercel + Neon), depuis le téléphone
+
+1. Sur **vercel.com**, connectez-vous avec GitHub, puis **Add New… → Project**
+   et importez le dépôt `agenda_travail_rdv`. Laissez les réglages par défaut (Vite) et déployez.
+2. Dans le projet Vercel : onglet **Storage → Create Database → Neon** (gratuit),
+   puis reliez-la au projet. Vercel ajoute tout seul `DATABASE_URL`.
+3. Onglet **Settings → Environment Variables** : ajoutez `APP_PASSWORD` avec le mot de passe de votre choix.
+4. Onglet **Deployments** : **Redeploy** le dernier déploiement pour prendre en compte les variables.
+5. Ouvrez l'adresse `https://….vercel.app` sur le téléphone, entrez le mot de passe.
+   Dans Chrome : **⋮ → Ajouter à l'écran d'accueil**.
+
+Les tables sont créées automatiquement au premier lancement : rien à faire dans Neon.
+
+**Reprendre les données saisies ailleurs** (ex. la version claude.ai) : Réglages → **Exporter**
+sur l'ancienne version, puis Réglages → **Importer** sur la nouvelle.
+
+## Développement
 
 ```bash
-cd agenda_travail_rdv
 npm install
-npm run dev     # http://localhost:5173
-npm test        # tests de l'agent
-npm run build
+npm test          # tests de l'agent, de l'analyse vocale et de l'API (PostgreSQL embarqué)
+npm run dev       # interface seule, en mode local (sans serveur)
+npx vercel dev    # interface + API, avec un fichier .env.local (voir .env.example)
 ```
 
-## Limites actuelles et suite (SaaS)
+## Structure
 
-- Données stockées **dans le navigateur** de l'appareil (pensez à exporter).
-- Les notifications ne partent que **quand la page est ouverte**.
-- Étapes suivantes prévues :
-  1. Brancher Supabase (`supabase/schema.sql` : comptes, plusieurs chantiers, sécurité par utilisateur).
-  2. Faire tourner `computeReminders` côté serveur (Edge Function planifiée)
-     pour envoyer les rappels par e-mail / SMS / WhatsApp même application fermée.
-  3. PWA installable sur téléphone avec notifications push.
+- `api/items.js`, `api/settings.js` : API (fonctions Vercel) ; `api/_lib/db.js` : connexion Neon et création des tables.
+- `src/` : application React (Vite).
+
+## Suite prévue (SaaS)
+
+- Comptes utilisateurs et plusieurs chantiers (colonne propriétaire sur les tables).
+- Rappels envoyés par le serveur (e-mail / WhatsApp) même application fermée (tâche planifiée Vercel).

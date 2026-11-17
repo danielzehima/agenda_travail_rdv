@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Mic, Square, Send, Loader2, Undo2, Hammer, CalendarClock, NotebookPen } from 'lucide-react';
 import { getCapability } from '../capabilities.js';
+import { browserDictation } from '../speech.js';
 import { interpret } from '../interpret.js';
 import { formatLong } from '../dates.js';
 import { TYPES } from '../store.js';
@@ -17,10 +18,11 @@ export default function VoiceCapture({ onCreate, onUndo, onOpen }) {
   const [error, setError] = useState('');
   const textRef = useRef(null);
 
-  // La dictée de claude.ai, si elle est disponible ici
+  // La dictée de claude.ai si disponible, sinon celle du navigateur
   useEffect(() => {
     let off = [];
-    getCapability('dictation').then((d) => {
+    getCapability('dictation').then((cap) => {
+      const d = cap || browserDictation();
       if (!d) return;
       setDictation(d);
       off = [
@@ -30,6 +32,7 @@ export default function VoiceCapture({ onCreate, onUndo, onOpen }) {
           setListening(state === 'listening' || state === 'starting' || state === 'finishing');
           if (state === 'idle' && reason === 'not_granted') { setDictation(null); setError('Micro refusé : utilisez le micro de votre clavier.'); }
           if (state === 'idle' && reason === 'unavailable') setDictation(null);
+          if (state === 'idle' && reason === 'upstream_error') setError('Le micro a rencontré un problème. Réessayez ou utilisez le micro du clavier.');
         }),
       ];
     });

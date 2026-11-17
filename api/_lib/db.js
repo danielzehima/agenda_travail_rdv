@@ -1,0 +1,53 @@
+// Connexion à Neon (PostgreSQL serverless). La chaîne de connexion reste
+// côté serveur (variable d'environnement), jamais dans le navigateur.
+import { neon } from '@neondatabase/serverless';
+
+let sql = null;
+let schemaReady = null;
+
+// Pour les tests : on peut injecter une autre base (PGlite).
+export function setSql(custom) {
+  sql = custom;
+  schemaReady = null;
+}
+
+export function getSql() {
+  if (!sql) {
+    const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+    if (!url) throw Object.assign(new Error('DATABASE_URL manquant : reliez une base Neon au projet Vercel.'), { status: 503 });
+    sql = neon(url);
+  }
+  return sql;
+}
+
+const SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS items (
+    id text PRIMARY KEY,
+    type text NOT NULL CHECK (type IN ('travail', 'rdv', 'journal')),
+    title text NOT NULL,
+    date date NOT NULL,
+    time text NOT NULL DEFAULT '',
+    location text NOT NULL DEFAULT '',
+    notes text NOT NULL DEFAULT '',
+    validated boolean NOT NULL DEFAULT false,
+    validated_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  'CREATE INDEX IF NOT EXISTS items_date ON items (date)',
+  `CREATE TABLE IF NOT EXISTS settings (
+    key text PRIMARY KEY,
+    value jsonb NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`,
+];
+
+// Crée les tables au premier appel : rien à faire à la main dans Neon.
+export async function ready() {
+  const db = getSql();
+  if (!schemaReady) {
+    schemaReady = (async () => { for (const q of SCHEMA) await db.query(q); })().catch((e) => { schemaReady = null; throw e; });
+  }
+  await schemaReady;
+  return db;
+}

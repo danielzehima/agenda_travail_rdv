@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
-import { X, Download, Upload } from 'lucide-react';
+import { X, Download, Upload, Cloud, LogOut } from 'lucide-react';
 
-export default function Settings({ settings, onSave, onClose, onExport, onImport }) {
+export default function Settings({ settings, onSave, onClose, onExport, onImport, online, onLogout }) {
   const [s, setS] = useState(settings);
   const fileRef = useRef(null);
   const num = (k) => (e) => setS({ ...s, [k]: Number(e.target.value) });
@@ -28,7 +28,11 @@ export default function Settings({ settings, onSave, onClose, onExport, onImport
         </label>
 
         <h4 className="section-label">Sauvegarde</h4>
-        <p className="muted small">Les données sont enregistrées sur cet appareil. Exportez-les régulièrement ou pour changer d'appareil.</p>
+        {online ? (
+          <p className="muted small server-line"><Cloud size={14} />Vos données sont enregistrées en ligne (base Neon) et sur cet appareil. L'export reste utile comme copie de secours.</p>
+        ) : (
+          <p className="muted small">Les données sont enregistrées sur cet appareil. Exportez-les régulièrement ou pour changer d'appareil.</p>
+        )}
         <div className="row">
           <button type="button" className="btn ghost" onClick={onExport}><Download size={16} />Exporter</button>
           <button type="button" className="btn ghost" onClick={() => fileRef.current?.click()}><Upload size={16} />Importer</button>
@@ -36,6 +40,7 @@ export default function Settings({ settings, onSave, onClose, onExport, onImport
         </div>
 
         <footer className="modal-foot">
+          {online && <button type="button" className="btn ghost" onClick={onLogout}><LogOut size={16} />Déconnexion</button>}
           <span className="spacer" />
           <button type="button" className="btn ghost" onClick={onClose}>Annuler</button>
           <button type="submit" className="btn primary">Enregistrer</button>

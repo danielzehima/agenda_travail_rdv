@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
-import { HardHat, Settings as SettingsIcon, CheckCircle2, ListTodo, AlertTriangle } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { HardHat, Settings as SettingsIcon, CheckCircle2, ListTodo, AlertTriangle, Cloud, CloudOff, RefreshCw } from 'lucide-react';
 import Calendar from './components/Calendar.jsx';
 import DayPanel from './components/DayPanel.jsx';
 import AgentPanel from './components/AgentPanel.jsx';
 import ItemForm from './components/ItemForm.jsx';
 import Settings from './components/Settings.jsx';
 import VoiceCapture from './components/VoiceCapture.jsx';
+import Login from './components/Login.jsx';
+import { enqueue, flush, pull, pendingCount, setPassword, getPassword, hasSyncedOnce, markSynced } from './sync.js';
 import { getCapability } from './capabilities.js';
 import { load, save, makeItem, exportJson, parseImport } from './store.js';
 import { computeReminders, notifyNew } from './agent.js';
@@ -23,6 +25,73 @@ export default function App() {
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 4000); };
 
   const { items, settings } = state;
+
+  // --- Synchronisation serveur ---
+  // mode : checking | local | login | online | offline | error
+  const [sync, setSync] = useState({ mode: 'checking', pending: pendingCount(), message: '' });
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const modeRef = useRef('checking');
+
+  const setMode = useCallback((mode, message = '') => {
+    modeRef.current = mode;
+    setSync({ mode, pending: pendingCount(), message });
+  }, []);
+
+  const handleError = useCallback((e) => {
+    const map = { no_api: 'local', unauthorized: 'login', offline: 'offline' };
+    setMode(map[e.code] || 'error', e.message);
+  }, [setMode]);
+
+  const connect = useCallback(async () => {
+    try {
+      await flush();
+      const remote = await pull();
+      const local = stateRef.current;
+      // Premier branchement : on envoie les données déjà saisies sur cet appareil
+      if (!hasSyncedOnce() && remote.items.length === 0 && local.items.length > 0) {
+        enqueue({ op: 'upsert', items: local.items });
+        enqueue({ op: 'settings', settings: local.settings });
+        await flush();
+        remote.items = local.items;
+      }
+      markSynced();
+      if (pendingCount() === 0) {
+        setState((s) => ({ ...s, items: remote.items, settings: { ...s.settings, ...remote.settings } }));
+      }
+      setMode('online');
+    } catch (e) {
+      handleError(e);
+    }
+  }, [handleError, setMode]);
+
+  // Envoie une modification au serveur (rien à faire en mode local)
+  const push = (op) => {
+    if (modeRef.current === 'local' || modeRef.current === 'checking') return;
+    enqueue(op);
+    setSync((s) => ({ ...s, pending: pendingCount() }));
+    flush().then(() => setMode('online')).catch(handleError);
+  };
+
+  useEffect(() => {
+    connect();
+    const t = setInterval(() => { if (['online', 'offline', 'error'].includes(modeRef.current)) connect(); }, 60_000);
+    const onVisible = () => { if (document.visibilityState === 'visible' && modeRef.current !== 'local' && modeRef.current !== 'login') connect(); };
+    window.addEventListener('online', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(t); window.removeEventListener('online', onVisible); document.removeEventListener('visibilitychange', onVisible); };
+  }, [connect]);
+
+  const login = async (pw) => {
+    setPassword(pw);
+    await connect();
+  };
+
+  const logout = () => {
+    setPassword('');
+    setShowSettings(false);
+    setMode('login');
+  };
 
   // Persistance
   useEffect(() => { save(state); }, [state]);
@@ -52,6 +121,7 @@ export default function App() {
   const update = (fn) => setState((s) => ({ ...s, items: fn(s.items) }));
 
   const saveItem = (item) => {
+    push({ op: 'upsert', items: [item] });
     update((list) => (list.some((i) => i.id === item.id) ? list.map((i) => (i.id === item.id ? item : i)) : [...list, item]));
     setEditing(null);
     setSelected(item.date);
@@ -60,6 +130,7 @@ export default function App() {
   };
 
   const deleteItem = (id) => {
+    push({ op: 'delete', ids: [id] });
     update((list) => list.filter((i) => i.id !== id));
     setEditing(null);
   };
@@ -67,10 +138,14 @@ export default function App() {
   const createFromVoice = (fields) => {
     const created = fields.map((f) => makeItem(f));
     update((list) => [...list, ...created]);
+    push({ op: 'upsert', items: created });
     return created.map((i) => i.id);
   };
 
-  const removeIds = (ids) => update((list) => list.filter((i) => !ids.includes(i.id)));
+  const removeIds = (ids) => {
+    push({ op: 'delete', ids });
+    update((list) => list.filter((i) => !ids.includes(i.id)));
+  };
 
   const openItem = (id) => {
     const it = state.items.find((i) => i.id === id);
@@ -83,6 +158,10 @@ export default function App() {
 
   const setValidated = (ids, value) => {
     const stamp = new Date().toISOString();
+    const changed = stateRef.current.items
+      .filter((i) => ids.includes(i.id))
+      .map((i) => ({ ...i, validated: value, validatedAt: value ? stamp : null }));
+    if (changed.length) push({ op: 'upsert', items: changed });
     update((list) => list.map((i) => (ids.includes(i.id) ? { ...i, validated: value, validatedAt: value ? stamp : null } : i)));
   };
 
@@ -126,6 +205,8 @@ export default function App() {
     try {
       const data = parseImport(await file.text());
       setState((s) => ({ ...s, ...data }));
+      push({ op: 'upsert', items: data.items, replace: true });
+      push({ op: 'settings', settings: data.settings });
       setShowSettings(false);
       flash(`${data.items.length} éléments importés.`);
     } catch (e) {
@@ -143,6 +224,8 @@ export default function App() {
     late: tasks.filter((i) => !i.validated && i.date < today).length,
   };
 
+  if (sync.mode === 'login') return <Login error={getPasswordError(sync)} onSubmit={login} />;
+
   return (
     <div className="app">
       <header className="topbar">
@@ -153,7 +236,10 @@ export default function App() {
             <p>Agenda de chantier</p>
           </div>
         </div>
-        <button className="icon-btn" onClick={() => setShowSettings(true)} aria-label="Réglages"><SettingsIcon size={18} /></button>
+        <div className="topbar-actions">
+          <SyncBadge sync={sync} onRetry={connect} />
+          <button className="icon-btn" onClick={() => setShowSettings(true)} aria-label="Réglages"><SettingsIcon size={18} /></button>
+        </div>
       </header>
 
       <div className="stats">
@@ -203,7 +289,9 @@ export default function App() {
         <Settings
           settings={settings}
           onClose={() => setShowSettings(false)}
-          onSave={(s) => { setState((st) => ({ ...st, settings: s })); setShowSettings(false); }}
+          onSave={(s) => { setState((st) => ({ ...st, settings: s })); push({ op: 'settings', settings: s }); setShowSettings(false); }}
+          online={sync.mode !== 'local' && sync.mode !== 'checking'}
+          onLogout={logout}
           onExport={doExport}
           onImport={doImport}
         />
@@ -221,5 +309,24 @@ function Stat({ icon: Icon, label, value, tone = '' }) {
         <div className="stat-label">{label}</div>
       </div>
     </div>
+  );
+}
+
+// Pas de message d'erreur à la toute première ouverture (aucun mot de passe saisi)
+function getPasswordError(sync) {
+  return getPassword() ? sync.message : '';
+}
+
+function SyncBadge({ sync, onRetry }) {
+  if (sync.mode === 'local' || sync.mode === 'checking') return null;
+  if (sync.mode === 'online' && sync.pending === 0) {
+    return <span className="sync ok" title="Données enregistrées sur le serveur"><Cloud size={14} />Synchronisé</span>;
+  }
+  const label = sync.mode === 'error' ? 'Erreur serveur' : sync.mode === 'offline' ? 'Hors ligne' : 'Envoi…';
+  return (
+    <button className={`sync ${sync.mode === 'error' ? 'err' : 'wait'}`} onClick={onRetry} title={sync.message || 'Réessayer'}>
+      {sync.mode === 'online' ? <RefreshCw size={14} className="spin" /> : <CloudOff size={14} />}
+      {label}{sync.pending > 0 ? ` · ${sync.pending} en attente` : ''}
+    </button>
   );
 }
