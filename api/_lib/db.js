@@ -18,7 +18,13 @@ export function getSql() {
   if (!sql) {
     const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
     if (!url) throw Object.assign(new Error('DATABASE_URL manquant : reliez une base Neon au projet Vercel.'), { status: 503 });
-    const pool = new pg.Pool({ connectionString: url, max: 5, idleTimeoutMillis: 10_000 });
+    const pool = new pg.Pool({
+      connectionString: url,
+      max: 5,
+      idleTimeoutMillis: 10_000,
+      // Neon fournit des chaînes avec channel_binding=require : on l'active côté client
+      enableChannelBinding: /channel_binding=require/.test(url),
+    });
     attachDatabasePool(pool);
     sql = { query: async (text, params) => (await pool.query(text, params)).rows };
   }
