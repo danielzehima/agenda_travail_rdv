@@ -1,6 +1,9 @@
-// Connexion à Neon (PostgreSQL serverless). La chaîne de connexion reste
-// côté serveur (variable d'environnement), jamais dans le navigateur.
-import { neon } from '@neondatabase/serverless';
+// Connexion à Neon (Lakebase Postgres). La chaîne de connexion reste côté
+// serveur (variable d'environnement), jamais dans le navigateur.
+// Sur Vercel : node-postgres + attachDatabasePool (recommandation Neon pour
+// Vercel Fluid compute), avec la chaîne « pooled » DATABASE_URL.
+import pg from 'pg';
+import { attachDatabasePool } from '@vercel/functions';
 
 let sql = null;
 let schemaReady = null;
@@ -15,7 +18,9 @@ export function getSql() {
   if (!sql) {
     const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
     if (!url) throw Object.assign(new Error('DATABASE_URL manquant : reliez une base Neon au projet Vercel.'), { status: 503 });
-    sql = neon(url);
+    const pool = new pg.Pool({ connectionString: url, max: 5, idleTimeoutMillis: 10_000 });
+    attachDatabasePool(pool);
+    sql = { query: async (text, params) => (await pool.query(text, params)).rows };
   }
   return sql;
 }
