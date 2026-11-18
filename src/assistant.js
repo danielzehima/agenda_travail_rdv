@@ -20,7 +20,9 @@ export async function askClaude(text, items, now = new Date()) {
       weekday: now.toLocaleDateString('fr-FR', { weekday: 'long' }),
     });
     return { reply: r.reply || '', actions: Array.isArray(r.actions) ? r.actions : [] };
-  } catch {
+  } catch (e) {
+    // Claude configuré mais en échec (clé refusée, crédit épuisé, panne…) : on le signale
+    if (e.reason && e.reason !== 'no_key') return { unavailable: e.message };
     return null;
   }
 }

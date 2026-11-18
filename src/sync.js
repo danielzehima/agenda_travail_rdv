@@ -35,8 +35,8 @@ export async function api(method, path, data) {
   }
   const json = await res.json().catch(() => ({}));
   if (res.status === 401) throw new ApiError('unauthorized', json.error || 'Mot de passe incorrect.');
-  if (res.status >= 500) throw new ApiError('server', json.error || 'Erreur du serveur.');
-  if (!res.ok) throw new ApiError('bad', json.error || 'Requête refusée.');
+  if (res.status >= 500) throw Object.assign(new ApiError('server', json.message || json.error || 'Erreur du serveur.'), { reason: json.error });
+  if (!res.ok) throw Object.assign(new ApiError('bad', json.message || json.error || 'Requête refusée.'), { reason: json.error });
   return json;
 }
 

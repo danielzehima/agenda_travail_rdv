@@ -80,7 +80,8 @@ export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, o
     try {
       // 1. Claude (serveur) : comprend la note et propose des actions
       const ai = await askClaude(note, allItems);
-      if (ai) {
+      if (ai?.unavailable) setReply(`${ai.unavailable} J'utilise l'assistant simple.`);
+      if (ai && !ai.unavailable) {
         const creates = ai.actions.filter((a) => a.kind === 'create');
         const changes = ai.actions.filter((a) => a.kind !== 'create').map((a) => toProposal(a, allItems)).filter(Boolean);
         if (creates.length) {
