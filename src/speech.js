@@ -9,6 +9,7 @@ export function browserDictation() {
   const emit = (k, v) => handlers[k].forEach((f) => f(v));
   const on = (k) => (f) => { handlers[k].add(f); return () => handlers[k].delete(f); };
   let rec = null;
+  let waiters = []; // stop() attend la fin réelle (les derniers mots arrivent après)
 
   return {
     onPartial: on('partial'),
@@ -39,14 +40,23 @@ export function browserDictation() {
             reason = 'upstream_error';
           }
         };
-        rec.onend = () => { emit('state', { state: 'idle', reason }); rec = null; };
+        rec.onend = () => {
+          emit('state', { state: 'idle', reason });
+          rec = null;
+          waiters.forEach((w) => w());
+          waiters = [];
+        };
         emit('state', { state: 'starting' });
         try { rec.start(); } catch (err) { reject(Object.assign(err, { code: 'unavailable' })); }
       });
     },
     stop() {
-      rec?.stop();
-      return Promise.resolve();
+      if (!rec) return Promise.resolve();
+      return new Promise((resolve) => {
+        waiters.push(resolve);
+        setTimeout(resolve, 2000); // au cas où le navigateur ne signale pas la fin
+        rec.stop();
+      });
     },
   };
 }

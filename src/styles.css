@@ -242,6 +242,7 @@ button { cursor: pointer; background: none; border: none; }
 .mem-text { overflow-wrap: anywhere; }
 .memory-panel .btn { justify-self: start; }
 .proposal-count { margin-left: auto; font-size: 12px; color: var(--muted); }
+.voice-sent { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .voice-reply { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); }
 .voice-reply svg { flex-shrink: 0; margin-top: 2px; color: var(--accent); }
 .proposal-choices { list-style: none; display: grid; gap: 6px; }

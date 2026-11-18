@@ -14,8 +14,16 @@ const ICONS = { travail: Hammer, rdv: CalendarClock, journal: NotebookPen };
 const SHORT = { travail: 'Travail', rdv: 'RDV', journal: 'Fait' };
 
 export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, onOpen, onChangeType, onCommand, onRestore }) {
-  const [text, setText] = useState('');
-  const [partial, setPartial] = useState('');
+  const [text, setTextState] = useState('');
+  const [partial, setPartialState] = useState('');
+  // Copies à jour (les mots du micro arrivent en différé) + filtre : après l'envoi,
+  // les derniers mots du micro ne doivent plus remplir le champ
+  const textVal = useRef('');
+  const partialVal = useRef('');
+  const accepting = useRef(true);
+  const setText = (v) => { const next = typeof v === 'function' ? v(textVal.current) : v; textVal.current = next; setTextState(next); };
+  const setPartial = (v) => { partialVal.current = v; setPartialState(v); };
+  const [sent, setSent] = useState(''); // dernière note envoyée (le champ, lui, est vidé)
   const [dictation, setDictation] = useState(null);
   const [listening, setListening] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -37,8 +45,8 @@ export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, o
       if (!d) return;
       setDictation(d);
       off = [
-        d.onPartial(({ text: t }) => setPartial(t)),
-        d.onFinal(({ text: t }) => { setPartial(''); setText((cur) => (cur ? `${cur} ${t}` : t)); }),
+        d.onPartial(({ text: t }) => { if (accepting.current) setPartial(t); }),
+        d.onFinal(({ text: t }) => { if (!accepting.current) return; setPartial(''); setText((cur) => (cur ? `${cur} ${t}` : t)); }),
         d.onState(({ state, reason }) => {
           setListening(state === 'listening' || state === 'starting' || state === 'finishing');
           if (state === 'idle' && reason === 'not_granted') { setDictation(null); setError('Micro refusé : utilisez le micro de votre clavier.'); }
@@ -59,6 +67,7 @@ export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, o
       return;
     }
     if (listening) { dictation.stop().catch(() => {}); return; }
+    accepting.current = true;
     dictation.start().catch((e) => {
       if (e?.code === 'not_granted' || e?.code === 'unavailable') {
         setDictation(null);
@@ -70,15 +79,21 @@ export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, o
 
   const submit = async (e) => {
     e?.preventDefault();
-    if (listening) await dictation.stop().catch(() => {});
-    const note = (text + (partial ? ` ${partial}` : '')).trim();
-    if (!note || busy) return;
+    if (busy) return;
+    setBusy(true); // indicateur d'envoi tout de suite, pendant que le micro finit
+    if (listening) await dictation.stop().catch(() => {}); // attend les derniers mots
+    const note = `${textVal.current} ${partialVal.current}`.trim();
+    if (!note) { setBusy(false); return; }
+    // Le champ se vide tout de suite, prêt pour la note suivante
+    accepting.current = false;
+    setText('');
+    setPartial('');
+    setSent(note);
     setError('');
     setResult(null);
     setDone(null);
     setReply('');
     setQueue([]);
-    setBusy(true);
     try {
       // 1. Claude (serveur) : comprend la note et propose des actions
       const ai = await askClaude(note, allItems);
@@ -94,7 +109,6 @@ export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, o
         setQueue(changes);
         setReply(ai.reply);
         setMemoryKey((k) => k + 1);
-        if (creates.length || changes.length) { setText(''); setPartial(''); }
         return;
       }
 
@@ -109,8 +123,6 @@ export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, o
       if (!items.length) { setError("Je n'ai rien compris. Reformulez, par exemple : « demain à 10h réunion avec l'architecte »."); return; }
       const ids = onCreate(items);
       setResult({ items, ids });
-      setText('');
-      setPartial('');
     } finally {
       setBusy(false);
     }
@@ -135,7 +147,7 @@ export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, o
             ref={textRef}
             rows={2}
             value={text + (partial ? (text ? ' ' : '') + partial : '')}
-            onChange={(e) => { setText(e.target.value); setPartial(''); }}
+            onChange={(e) => { accepting.current = true; setText(e.target.value); setPartial(''); }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) submit(e); }}
             placeholder="Ex. : demain 10h réunion avec le plombier"
           />
@@ -151,6 +163,7 @@ export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, o
 
       <AssistantMemory refreshKey={memoryKey} />
 
+      {sent && (reply || error || busy) && <p className="voice-sent">Vous : « {sent} »</p>}
       {reply && <p className="voice-reply"><Bot size={16} />{reply}</p>}
 
       {proposal && (
@@ -163,8 +176,6 @@ export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, o
             onCommand(change);
             setDone(change);
             nextProposal();
-            setText('');
-            setPartial('');
           }}
         />
       )}
