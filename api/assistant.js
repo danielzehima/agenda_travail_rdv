@@ -8,7 +8,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
-import { authorized, body } from './_lib/http.js';
+import { authorized, body, fail } from './_lib/http.js';
+import { ready } from './_lib/db.js';
 
 const MODEL = 'claude-opus-5-5';
 
@@ -52,7 +53,64 @@ Règles :
 - Une phrase qui complète un rendez-vous (« je dois lui rappeler… ») va dans les notes de ce rendez-vous, pas dans un nouvel élément.
 - Une échéance (« pour demain à 8h ») qui concerne un objet et non le moment de l'action reste dans le titre ou les notes.
 - "reply" : une phrase simple qui résume ce que tu as compris, ou une question si c'est ambigu. Pas de jargon.
-- N'invente rien qui n'est pas dans la note.`;
+- N'invente rien qui n'est pas dans la note.
+
+Mémoire :
+- Les messages précédents sont les notes déjà dictées et tes réponses. Sers-t'en pour comprendre « la », « lui », « ce jour-là », « la même chose », « comme hier »…
+- L'agenda fourni avec la dernière note fait toujours foi : une modification que tu as proposée a pu être refusée par l'utilisateur. Ne recrée pas un élément qui existe déjà.`;
+
+// --- Mémoire de la conversation (table assistant_memory dans Neon) ---
+const MEMORY_MESSAGES = 30; // 15 échanges
+const MEMORY_DAYS = 14;
+
+async function loadMemory() {
+  try {
+    const db = await ready();
+    const rows = await db.query(
+      `SELECT role, content, created_at FROM (
+         SELECT id, role, content, created_at FROM assistant_memory
+         WHERE created_at > now() - make_interval(days => ${MEMORY_DAYS})
+         ORDER BY id DESC LIMIT ${MEMORY_MESSAGES}
+       ) t ORDER BY id`,
+    );
+    // L'historique doit commencer par l'utilisateur et alterner
+    const out = [];
+    for (const r of rows) {
+      if (!out.length && r.role !== 'user') continue;
+      if (out.length && out[out.length - 1].role === r.role) out[out.length - 1].content += `\n${r.content}`;
+      else out.push({ role: r.role, content: r.content, at: r.created_at });
+    }
+    if (out.length && out[out.length - 1].role === 'user') out.pop();
+    return out;
+  } catch (e) {
+    console.error('mémoire indisponible', e.message);
+    return [];
+  }
+}
+
+async function saveExchange(note, answer) {
+  try {
+    const db = await ready();
+    await db.query("INSERT INTO assistant_memory (role, content) VALUES ('user', $1), ('assistant', $2)", [note, answer]);
+  } catch (e) {
+    console.error('mémoire non enregistrée', e.message);
+  }
+}
+
+// Résumé lisible de ce que l'assistant a fait, gardé en mémoire
+export function summarize(reply, actions, items) {
+  const byId = Object.fromEntries(items.map((i) => [i.id, i]));
+  const lines = actions.map((a) => {
+    const t = a.item_id ? `« ${byId[a.item_id]?.title} »` : `« ${a.title} »`;
+    const when = [a.date, a.time].filter(Boolean).join(' ');
+    if (a.kind === 'create') return `- créé ${a.type} ${t}${when ? ` le ${when}` : ''}`;
+    if (a.kind === 'delete') return `- proposé de supprimer ${t}`;
+    if (a.kind === 'validate') return `- proposé de valider ${t}`;
+    const ch = ['title', 'type', 'date', 'time', 'location', 'notes'].filter((k) => a[k] !== null).map((k) => `${k}=${a[k]}`).join(', ');
+    return `- proposé de modifier ${t} (${ch})`;
+  });
+  return [reply, ...lines].filter(Boolean).join('\n');
+}
 
 let client = null;
 export function setClient(c) { client = c; }
@@ -105,6 +163,22 @@ Note dictée :
 
 export default async function handler(req, res) {
   if (!authorized(req, res)) return;
+
+  // Lire la mémoire (affichage dans l'app)
+  if (req.method === 'GET') {
+    const memory = await loadMemory();
+    return res.status(200).json({ memory: memory.map(({ role, content, at }) => ({ role, content, at })) });
+  }
+  // Effacer la mémoire
+  if (req.method === 'DELETE') {
+    try {
+      const db = await ready();
+      await db.query('DELETE FROM assistant_memory');
+      return res.status(200).json({ cleared: true });
+    } catch (e) {
+      return fail(res, e);
+    }
+  }
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Méthode non autorisée.' });
@@ -121,6 +195,8 @@ export default async function handler(req, res) {
   const items = Array.isArray(b.items) ? b.items.filter((i) => i && typeof i.id === 'string').slice(0, 300) : [];
   if (!text) return res.status(400).json({ error: 'Note vide.' });
 
+  const history = (await loadMemory()).map(({ role, content }) => ({ role, content }));
+
   try {
     const response = await getClient().beta.messages.parse({
       model: MODEL,
@@ -129,14 +205,17 @@ export default async function handler(req, res) {
       fallbacks: 'default',
       output_config: { effort: 'low', format: betaZodOutputFormat(Answer) },
       system: SYSTEM,
-      messages: [{ role: 'user', content: buildUserMessage({ text, items, today, time, weekday }) }],
+      cache_control: { type: 'ephemeral' }, // l'historique grandit par la fin : préfixe réutilisable
+      messages: [...history, { role: 'user', content: buildUserMessage({ text, items, today, time, weekday }) }],
     });
 
     if (response.stop_reason === 'refusal' || !response.parsed_output) {
       return res.status(422).json({ error: 'refusal', message: "L'assistant n'a pas pu traiter cette note." });
     }
-    const { reply, actions } = response.parsed_output;
-    return res.status(200).json({ reply: str(reply, 500) || '', actions: sanitizeActions(actions, items, today), by: 'claude' });
+    const { reply } = response.parsed_output;
+    const actions = sanitizeActions(response.parsed_output.actions, items, today);
+    await saveExchange(`(${weekday} ${today} ${time}) ${text}`, summarize(reply, actions, items));
+    return res.status(200).json({ reply: str(reply, 500) || '', actions, by: 'claude' });
   } catch (e) {
     console.error(e);
     if (e instanceof Anthropic.AuthenticationError) return res.status(503).json({ error: 'bad_key', message: 'Clé ANTHROPIC_API_KEY refusée.' });

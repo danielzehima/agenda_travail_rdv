@@ -46,6 +46,12 @@ const SCHEMA = [
     updated_at timestamptz NOT NULL DEFAULT now()
   )`,
   'CREATE INDEX IF NOT EXISTS items_date ON items (date)',
+  `CREATE TABLE IF NOT EXISTS assistant_memory (
+    id bigserial PRIMARY KEY,
+    role text NOT NULL CHECK (role IN ('user', 'assistant')),
+    content text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`,
   `CREATE TABLE IF NOT EXISTS settings (
     key text PRIMARY KEY,
     value jsonb NOT NULL,

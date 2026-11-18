@@ -8,6 +8,7 @@ import { TYPES } from '../store.js';
 import { detectCommand } from '../commands.js';
 import { askClaude, toProposal } from '../assistant.js';
 import CommandProposal from './CommandProposal.jsx';
+import AssistantMemory from './AssistantMemory.jsx';
 
 const ICONS = { travail: Hammer, rdv: CalendarClock, journal: NotebookPen };
 const SHORT = { travail: 'Travail', rdv: 'RDV', journal: 'Fait' };
@@ -23,6 +24,7 @@ export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, o
   const proposal = queue[0] || null;
   const nextProposal = () => setQueue((q) => q.slice(1));
   const [reply, setReply] = useState(''); // réponse de l'assistant Claude
+  const [memoryKey, setMemoryKey] = useState(0); // pour rafraîchir la mémoire affichée
   const [done, setDone] = useState(null); // { action, before, after } après confirmation
   const [error, setError] = useState('');
   const textRef = useRef(null);
@@ -91,6 +93,7 @@ export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, o
         }
         setQueue(changes);
         setReply(ai.reply);
+        setMemoryKey((k) => k + 1);
         if (creates.length || changes.length) { setText(''); setPartial(''); }
         return;
       }
@@ -145,6 +148,8 @@ export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, o
 
       {listening && <p className="voice-hint listening"><span className="pulse" />Je vous écoute… touchez ■ pour arrêter.</p>}
       {error && <p className="voice-hint">{error}</p>}
+
+      <AssistantMemory refreshKey={memoryKey} />
 
       {reply && <p className="voice-reply"><Bot size={16} />{reply}</p>}
 

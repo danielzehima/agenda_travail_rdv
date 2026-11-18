@@ -19,6 +19,9 @@ via un petit serveur hébergé sur **Vercel**.
   les notes dictées librement, crée les éléments, et propose modifications / suppressions / validations
   à confirmer. Nécessite `ANTHROPIC_API_KEY` dans Vercel ; sans clé (ou en cas de panne), l'assistant
   simple intégré (`src/parse.js`, `src/commands.js`) prend le relais.
+- **Mémoire de l'assistant** : les 15 derniers échanges (14 jours max) sont gardés dans Neon (table
+  `assistant_memory`) et renvoyés à Claude, pour comprendre « mets-la à 17h », « ce jour-là »… L'agenda
+  actuel fait toujours foi. Visible et effaçable dans l'app (« L'assistant se souvient de… »).
 - **Assistant de rappel** (`src/agent.js`) : rendez-vous imminents, briefing du matin,
   validation de fin de journée, retards.
 - **Synchronisation** (`src/sync.js`) : chaque modification part au serveur ;
