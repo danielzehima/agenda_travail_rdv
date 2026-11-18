@@ -11,6 +11,10 @@ via un petit serveur hébergé sur **Vercel**.
 - **Validation** au fur et à mesure, avec la date et l'heure de validation.
 - **Saisie vocale** « Dites-le à l'assistant » : on dicte, l'assistant crée les éléments
   (date, heure, type). Micro de l'app (reconnaissance vocale du navigateur) ou micro du clavier.
+- **Modifier à la voix, avec votre accord** (`src/commands.js`) : « décale la réunion avec mon patron à 16h »,
+  « déplace la chape à jeudi », « repousse la livraison de 2 jours », « annule le rendez-vous avec le plombier »,
+  « valide la pose de la chape ». L'assistant propose le changement ; rien n'est modifié sans « Confirmer »,
+  et « Annuler » remet l'élément comme avant.
 - **Assistant de rappel** (`src/agent.js`) : rendez-vous imminents, briefing du matin,
   validation de fin de journée, retards.
 - **Synchronisation** (`src/sync.js`) : chaque modification part au serveur ;

@@ -41,7 +41,7 @@ const NEW_CLAUSE = new RegExp(
 
 const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 
-function findDate(s, now) {
+export function findDate(s, now) {
   const rules = [
     [/\bavant[- ]hier\b/i, () => addDays(now, -2)],
     [/\bapr[eè]s[- ]demain\b/i, () => addDays(now, 2)],
@@ -95,7 +95,7 @@ function findDate(s, now) {
 
 const AFTERNOON = /(?:(?:de\s+|dans\s+)?l['’]\s*|cet\s+|en\s+)?après[- ]midi/iu;
 
-function findTime(s) {
+export function findTime(s) {
   const m = s.match(/(?:(?:^|\s)(?:à partir de|à partir d['’]|dès|vers|aux alentours de|à|a|pour)\s+)?(?<!\d)(\d{1,2})\s*(?:h|heures?|:)\s*(\d{2}|et demie|et quart|moins le quart)?(?!\p{L})/iu);
   if (m) {
     let h = Number(m[1]);

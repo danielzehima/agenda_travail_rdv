@@ -150,6 +150,26 @@ export default function App() {
     update((list) => list.map((i) => (i.id === id ? next : i)));
   };
 
+  // Commande vocale confirmée par l'utilisateur
+  const applyVoiceCommand = ({ action, before, after }) => {
+    if (action === 'delete') {
+      push({ op: 'delete', ids: [before.id] });
+      update((list) => list.filter((i) => i.id !== before.id));
+      return;
+    }
+    push({ op: 'upsert', items: [after] });
+    update((list) => list.map((i) => (i.id === after.id ? after : i)));
+    setSelected(after.date);
+    const d = fromKey(after.date);
+    setView({ year: d.getFullYear(), month: d.getMonth() });
+  };
+
+  // « Annuler » après une commande : remet l'élément tel qu'il était
+  const restoreItem = (item) => {
+    push({ op: 'upsert', items: [item] });
+    update((list) => (list.some((i) => i.id === item.id) ? list.map((i) => (i.id === item.id ? item : i)) : [...list, item]));
+  };
+
   const removeIds = (ids) => {
     push({ op: 'delete', ids });
     update((list) => list.filter((i) => !ids.includes(i.id)));
@@ -256,7 +276,7 @@ export default function App() {
         <Stat icon={AlertTriangle} label="En retard" value={stats.late} tone={stats.late ? 'late' : ''} />
       </div>
 
-      <VoiceCapture onCreate={createFromVoice} onUndo={removeIds} onOpen={openItem} onChangeType={changeType} />
+      <VoiceCapture items={items} onCreate={createFromVoice} onUndo={removeIds} onOpen={openItem} onChangeType={changeType} onCommand={applyVoiceCommand} onRestore={restoreItem} />
 
       <main className="layout">
         <div className="col-main">

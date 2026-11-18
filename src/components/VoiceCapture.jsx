@@ -5,17 +5,21 @@ import { browserDictation } from '../speech.js';
 import { interpret } from '../interpret.js';
 import { formatLong } from '../dates.js';
 import { TYPES } from '../store.js';
+import { detectCommand } from '../commands.js';
+import CommandProposal from './CommandProposal.jsx';
 
 const ICONS = { travail: Hammer, rdv: CalendarClock, journal: NotebookPen };
 const SHORT = { travail: 'Travail', rdv: 'RDV', journal: 'Fait' };
 
-export default function VoiceCapture({ onCreate, onUndo, onOpen, onChangeType }) {
+export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, onOpen, onChangeType, onCommand, onRestore }) {
   const [text, setText] = useState('');
   const [partial, setPartial] = useState('');
   const [dictation, setDictation] = useState(null);
   const [listening, setListening] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null); // { items, ids }
+  const [proposal, setProposal] = useState(null); // commande en attente de confirmation
+  const [done, setDone] = useState(null); // { action, before, after } après confirmation
   const [error, setError] = useState('');
   const textRef = useRef(null);
 
@@ -63,8 +67,17 @@ export default function VoiceCapture({ onCreate, onUndo, onOpen, onChangeType })
     if (listening) await dictation.stop().catch(() => {});
     const note = (text + (partial ? ` ${partial}` : '')).trim();
     if (!note || busy) return;
-    setBusy(true);
     setError('');
+    setResult(null);
+    setDone(null);
+    // Modifier / annuler / valider un élément existant : on propose, l'utilisateur confirme
+    const cmd = detectCommand(note, allItems);
+    if (cmd) {
+      if (cmd.error) { setError(cmd.error); return; }
+      setProposal(cmd);
+      return;
+    }
+    setBusy(true);
     try {
       const { items } = await interpret(note);
       if (!items.length) { setError("Je n'ai rien compris. Reformulez, par exemple : « demain à 10h réunion avec l'architecte »."); return; }
@@ -109,6 +122,30 @@ export default function VoiceCapture({ onCreate, onUndo, onOpen, onChangeType })
 
       {listening && <p className="voice-hint listening"><span className="pulse" />Je vous écoute… touchez ■ pour arrêter.</p>}
       {error && <p className="voice-hint">{error}</p>}
+
+      {proposal && (
+        <CommandProposal
+          key={proposal.target + proposal.action}
+          cmd={proposal}
+          onCancel={() => setProposal(null)}
+          onConfirm={(change) => {
+            onCommand(change);
+            setDone(change);
+            setProposal(null);
+            setText('');
+            setPartial('');
+          }}
+        />
+      )}
+
+      {done && (
+        <div className="voice-result">
+          <div className="voice-result-head">
+            <strong>{{ update: 'Modifié', delete: 'Supprimé', validate: 'Validé' }[done.action]} : « {done.before.title} »</strong>
+            <button className="btn small" onClick={() => { onRestore(done.before); setDone(null); }}><Undo2 size={14} />Annuler</button>
+          </div>
+        </div>
+      )}
 
       {result && (
         <div className="voice-result">
