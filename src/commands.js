@@ -115,8 +115,12 @@ export function detectCommand(text, items, now = new Date()) {
 // Nouvelle version de l'élément après la modification proposée
 export function applyCommand(cmd, item, now = new Date()) {
   if (cmd.action === 'update') {
-    if (cmd.changes.shiftMinutes) return { ...item, ...addMinutes(item, cmd.changes.shiftMinutes) };
-    return { ...item, ...(cmd.changes.date ? { date: cmd.changes.date } : {}), ...(cmd.changes.time ? { time: cmd.changes.time } : {}) };
+    const { shiftMinutes, ...fields } = cmd.changes;
+    if (shiftMinutes) return { ...item, ...addMinutes(item, shiftMinutes) };
+    const next = { ...item, ...fields };
+    // Un élément qui devient « fait du jour » n'a plus de case à valider
+    if (fields.type === 'journal') Object.assign(next, { validated: false, validatedAt: null });
+    return next;
   }
   if (cmd.action === 'validate') return { ...item, validated: true, validatedAt: now.toISOString() };
   return null; // suppression

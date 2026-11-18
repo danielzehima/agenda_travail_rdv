@@ -232,6 +232,9 @@ button { cursor: pointer; background: none; border: none; }
 .proposal.delete { background: var(--late-soft); border-color: var(--late); }
 .proposal.validate { background: var(--ok-soft); border-color: var(--ok); }
 .proposal-head { display: flex; align-items: center; gap: 8px; }
+.proposal-count { margin-left: auto; font-size: 12px; color: var(--muted); }
+.voice-reply { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); }
+.voice-reply svg { flex-shrink: 0; margin-top: 2px; color: var(--accent); }
 .proposal-choices { list-style: none; display: grid; gap: 6px; }
 .proposal-choices button { width: 100%; text-align: left; display: grid; padding: 8px 10px; border-radius: 8px; background: var(--card); border: 1px solid var(--border); }
 .proposal-choices button.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }

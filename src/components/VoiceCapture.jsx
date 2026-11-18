@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Mic, Square, Send, Loader2, Undo2, Hammer, CalendarClock, NotebookPen } from 'lucide-react';
+import { Mic, Square, Send, Loader2, Undo2, Hammer, CalendarClock, NotebookPen, Bot } from 'lucide-react';
 import { getCapability } from '../capabilities.js';
 import { browserDictation } from '../speech.js';
 import { interpret } from '../interpret.js';
 import { formatLong } from '../dates.js';
 import { TYPES } from '../store.js';
 import { detectCommand } from '../commands.js';
+import { askClaude, toProposal } from '../assistant.js';
 import CommandProposal from './CommandProposal.jsx';
 
 const ICONS = { travail: Hammer, rdv: CalendarClock, journal: NotebookPen };
@@ -18,7 +19,10 @@ export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, o
   const [listening, setListening] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null); // { items, ids }
-  const [proposal, setProposal] = useState(null); // commande en attente de confirmation
+  const [queue, setQueue] = useState([]); // modifications en attente de confirmation, une à la fois
+  const proposal = queue[0] || null;
+  const nextProposal = () => setQueue((q) => q.slice(1));
+  const [reply, setReply] = useState(''); // réponse de l'assistant Claude
   const [done, setDone] = useState(null); // { action, before, after } après confirmation
   const [error, setError] = useState('');
   const textRef = useRef(null);
@@ -70,15 +74,33 @@ export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, o
     setError('');
     setResult(null);
     setDone(null);
-    // Modifier / annuler / valider un élément existant : on propose, l'utilisateur confirme
-    const cmd = detectCommand(note, allItems);
-    if (cmd) {
-      if (cmd.error) { setError(cmd.error); return; }
-      setProposal(cmd);
-      return;
-    }
+    setReply('');
+    setQueue([]);
     setBusy(true);
     try {
+      // 1. Claude (serveur) : comprend la note et propose des actions
+      const ai = await askClaude(note, allItems);
+      if (ai) {
+        const creates = ai.actions.filter((a) => a.kind === 'create');
+        const changes = ai.actions.filter((a) => a.kind !== 'create').map((a) => toProposal(a, allItems)).filter(Boolean);
+        if (creates.length) {
+          const fields = creates.map(({ type, title, date, time, location, notes }) => ({ type, title, date, time, location, notes }));
+          const ids = onCreate(fields);
+          setResult({ items: fields, ids });
+        }
+        setQueue(changes);
+        setReply(ai.reply);
+        if (creates.length || changes.length) { setText(''); setPartial(''); }
+        return;
+      }
+
+      // 2. Sans Claude : assistant simple intégré
+      const cmd = detectCommand(note, allItems);
+      if (cmd) {
+        if (cmd.error) { setError(cmd.error); return; }
+        setQueue([cmd]);
+        return;
+      }
       const { items } = await interpret(note);
       if (!items.length) { setError("Je n'ai rien compris. Reformulez, par exemple : « demain à 10h réunion avec l'architecte »."); return; }
       const ids = onCreate(items);
@@ -123,15 +145,18 @@ export default function VoiceCapture({ items: allItems = [], onCreate, onUndo, o
       {listening && <p className="voice-hint listening"><span className="pulse" />Je vous écoute… touchez ■ pour arrêter.</p>}
       {error && <p className="voice-hint">{error}</p>}
 
+      {reply && <p className="voice-reply"><Bot size={16} />{reply}</p>}
+
       {proposal && (
         <CommandProposal
-          key={proposal.target + proposal.action}
+          key={`${proposal.target}-${proposal.action}-${queue.length}`}
           cmd={proposal}
-          onCancel={() => setProposal(null)}
+          remaining={queue.length - 1}
+          onCancel={nextProposal}
           onConfirm={(change) => {
             onCommand(change);
             setDone(change);
-            setProposal(null);
+            nextProposal();
             setText('');
             setPartial('');
           }}

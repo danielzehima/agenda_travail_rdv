@@ -15,6 +15,10 @@ via un petit serveur hébergé sur **Vercel**.
   « déplace la chape à jeudi », « repousse la livraison de 2 jours », « annule le rendez-vous avec le plombier »,
   « valide la pose de la chape ». L'assistant propose le changement ; rien n'est modifié sans « Confirmer »,
   et « Annuler » remet l'élément comme avant.
+- **Assistant Claude** (`api/assistant.js`, modèle `claude-opus-5-5`, sortie JSON structurée) : comprend
+  les notes dictées librement, crée les éléments, et propose modifications / suppressions / validations
+  à confirmer. Nécessite `ANTHROPIC_API_KEY` dans Vercel ; sans clé (ou en cas de panne), l'assistant
+  simple intégré (`src/parse.js`, `src/commands.js`) prend le relais.
 - **Assistant de rappel** (`src/agent.js`) : rendez-vous imminents, briefing du matin,
   validation de fin de journée, retards.
 - **Synchronisation** (`src/sync.js`) : chaque modification part au serveur ;
@@ -28,7 +32,8 @@ via un petit serveur hébergé sur **Vercel**.
    et importez le dépôt `agenda_travail_rdv`. Laissez les réglages par défaut (Vite) et déployez.
 2. Dans le projet Vercel : onglet **Storage → Create Database → Neon** (gratuit),
    puis reliez-la au projet. Vercel ajoute tout seul `DATABASE_URL`.
-3. Onglet **Settings → Environment Variables** : ajoutez `APP_PASSWORD` avec le mot de passe de votre choix.
+3. Onglet **Settings → Environment Variables** : ajoutez `APP_PASSWORD` avec le mot de passe de votre choix,
+   et `ANTHROPIC_API_KEY` (clé créée sur console.anthropic.com) pour l'assistant Claude.
 4. Onglet **Deployments** : **Redeploy** le dernier déploiement pour prendre en compte les variables.
 5. Ouvrez l'adresse `https://….vercel.app` sur le téléphone, entrez le mot de passe.
    Dans Chrome : **⋮ → Ajouter à l'écran d'accueil**.
