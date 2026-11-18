@@ -52,6 +52,19 @@ const SCHEMA = [
     content text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
   )`,
+  `CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint text PRIMARY KEY,
+    subscription jsonb NOT NULL,
+    timezone text NOT NULL DEFAULT 'UTC',
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE TABLE IF NOT EXISTS reminder_log (
+    day text NOT NULL,
+    slot text NOT NULL,
+    timezone text NOT NULL,
+    sent_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (day, slot, timezone)
+  )`,
   `CREATE TABLE IF NOT EXISTS settings (
     key text PRIMARY KEY,
     value jsonb NOT NULL,

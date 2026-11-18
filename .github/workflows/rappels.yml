@@ -1,0 +1,19 @@
+# Horloge des rappels : réveille le serveur deux fois par heure.
+# Le serveur envoie le programme du jour (7h) et le bilan (17h) à l'heure locale
+# de chaque téléphone inscrit, une seule fois par jour.
+name: Rappels du chantier
+
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  rappels:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Déclencher les rappels
+        run: curl -fsS --retry 3 --retry-delay 10 --max-time 60 https://agenda-travail-rdv.vercel.app/api/cron

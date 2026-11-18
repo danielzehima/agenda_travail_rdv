@@ -101,19 +101,12 @@ export function computeReminders(items, settings, now = new Date()) {
 
 // Envoie une notification système pour chaque rappel urgent/important
 // jamais envoyé. Retourne la nouvelle table des rappels déjà envoyés.
-export function notifyNew(reminders, sent) {
+export function notifyNew(reminders, sent, show) {
   const next = { ...sent };
-  const canNotify = typeof Notification !== 'undefined' && Notification.permission === 'granted';
   for (const r of reminders) {
     if (next[r.key]) continue;
     next[r.key] = Date.now();
-    if (canNotify) {
-      try {
-        new Notification(r.title, { body: r.message, tag: r.key, icon: '/favicon.svg' });
-      } catch {
-        // certains navigateurs mobiles exigent un service worker : on ignore
-      }
-    }
+    if (show) show(r.title, r.message, r.key);
   }
   // Nettoyage des clés de plus de 30 jours
   const limit = Date.now() - 30 * 24 * 3600 * 1000;

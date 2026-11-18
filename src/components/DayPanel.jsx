@@ -15,7 +15,7 @@ export default function DayPanel({ dateKey, items, today, onAdd, onEdit, onToggl
   const pct = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
 
   return (
-    <section className="card day-panel">
+    <section className="card day-panel" id="jour">
       <header className="day-head">
         <div>
           <h2>{dateKey === today ? "Aujourd'hui" : formatLong(dateKey)}</h2>

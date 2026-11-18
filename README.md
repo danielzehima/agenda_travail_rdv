@@ -22,6 +22,11 @@ via un petit serveur hébergé sur **Vercel**.
 - **Mémoire de l'assistant** : les 15 derniers échanges (14 jours max) sont gardés dans Neon (table
   `assistant_memory`) et renvoyés à Claude, pour comprendre « mets-la à 17h », « ce jour-là »… L'agenda
   actuel fait toujours foi. Visible et effaçable dans l'app (« L'assistant se souvient de… »).
+- **Rappels par notification, même application fermée** : programme du jour à 7h, bilan à 17h
+  (« le programme a-t-il été exécuté ? » + éléments à valider), à l'heure locale du téléphone.
+  Application installable (PWA, `public/sw.js`), Web Push (clés générées et rangées dans Neon),
+  horloge `.github/workflows/rappels.yml` qui appelle `/api/cron` ; chaque rappel ne part qu'une fois par jour.
+  À activer dans Réglages → « Activer les rappels ».
 - **Assistant de rappel** (`src/agent.js`) : rendez-vous imminents, briefing du matin,
   validation de fin de journée, retards.
 - **Synchronisation** (`src/sync.js`) : chaque modification part au serveur ;

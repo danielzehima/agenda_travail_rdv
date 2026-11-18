@@ -6,7 +6,7 @@ export default function AgentPanel({ reminders, items, notifications, onEnableNo
   const byId = Object.fromEntries(items.map((i) => [i.id, i]));
 
   return (
-    <section className="card agent">
+    <section className="card agent" id="agent">
       <header className="agent-head">
         <span className="agent-avatar"><Bot size={18} /></span>
         <div>

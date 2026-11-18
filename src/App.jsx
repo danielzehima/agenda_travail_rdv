@@ -9,6 +9,7 @@ import VoiceCapture from './components/VoiceCapture.jsx';
 import Login from './components/Login.jsx';
 import { enqueue, flush, pull, pendingCount, setPassword, getPassword, hasSyncedOnce, markSynced } from './sync.js';
 import { getCapability } from './capabilities.js';
+import { enablePush, disablePush, pushState, sendTestPush, showLocal } from './pwa.js';
 import { load, save, makeItem, exportJson, parseImport } from './store.js';
 import { computeReminders, notifyNew } from './agent.js';
 import { todayKey, fromKey } from './dates.js';
@@ -108,7 +109,7 @@ export default function App() {
   useEffect(() => {
     const fresh = reminders.some((r) => !state.sentReminders[r.key]);
     if (!fresh) return;
-    const sentReminders = notifyNew(reminders, state.sentReminders);
+    const sentReminders = notifyNew(reminders, state.sentReminders, showLocal);
     setState((s) => ({ ...s, sentReminders }));
   }, [reminders, state.sentReminders]);
 
@@ -198,17 +199,46 @@ export default function App() {
     if (it) setValidated([id], !it.validated);
   };
 
+  // Rappels par notification (programme à 7h, bilan à 17h), même app fermée
+  const [pushStatus, setPushStatus] = useState('off');
+  useEffect(() => { pushState().then(setPushStatus); }, []);
+
   const enableNotifications = async () => {
-    if (typeof Notification === 'undefined') {
-      flash("Les notifications ne sont pas disponibles ici. Les rappels restent visibles dans l'assistant.");
-      return;
+    try {
+      const { timezone } = await enablePush();
+      setPushStatus('on');
+      setState((s) => ({ ...s, settings: { ...s.settings, notifications: true } }));
+      await sendTestPush().catch(() => {});
+      flash(`Rappels activés (fuseau ${timezone}) : programme à ${settings.morningHour}h, bilan à ${settings.eveningHour}h.`);
+    } catch (e) {
+      setPushStatus(await pushState());
+      flash(e.message || "Impossible d'activer les rappels.");
     }
-    let perm = 'denied';
-    try { perm = await Notification.requestPermission(); } catch { /* refusé */ }
-    if (perm !== 'granted') flash("Notifications refusées. Les rappels restent visibles dans l'assistant.");
-    setState((s) => ({ ...s, settings: { ...s.settings, notifications: perm === 'granted' } }));
-    if (perm === 'granted') new Notification('Assistant de rappel activé', { body: 'Je vous préviendrai pour vos rendez-vous et validations.', icon: '/favicon.svg' });
   };
+
+  const disableNotifications = async () => {
+    await disablePush();
+    setPushStatus('off');
+    flash('Rappels désactivés sur cet appareil.');
+  };
+
+  // Ouverture depuis une notification : « #aujourdhui » ou « #bilan »
+  useEffect(() => {
+    const go = (hash) => {
+      if (!['#aujourdhui', '#bilan'].includes(hash)) return;
+      const n = new Date();
+      setSelected(todayKey(n));
+      setView({ year: n.getFullYear(), month: n.getMonth() });
+      setTimeout(() => document.getElementById(hash === '#bilan' ? 'agent' : 'jour')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
+      history.replaceState(null, '', location.pathname);
+    };
+    go(location.hash);
+    const onHash = () => go(location.hash);
+    const onMsg = (e) => { if (e.data?.type === 'open') go(new URL(e.data.url).hash); };
+    window.addEventListener('hashchange', onHash);
+    navigator.serviceWorker?.addEventListener('message', onMsg);
+    return () => { window.removeEventListener('hashchange', onHash); navigator.serviceWorker?.removeEventListener('message', onMsg); };
+  }, []);
 
   const doExport = async () => {
     const downloads = await getCapability('downloads');
@@ -302,7 +332,7 @@ export default function App() {
           <AgentPanel
             reminders={reminders}
             items={items}
-            notifications={settings.notifications && typeof Notification !== 'undefined' && Notification.permission === 'granted'}
+            notifications={pushStatus === 'on'}
             onEnableNotifications={enableNotifications}
             onValidateAll={(ids) => setValidated(ids, true)}
             onOpenItem={(i) => { setSelected(i.date); const d = fromKey(i.date); setView({ year: d.getFullYear(), month: d.getMonth() }); }}
@@ -319,6 +349,10 @@ export default function App() {
           onClose={() => setShowSettings(false)}
           onSave={(s) => { setState((st) => ({ ...st, settings: s })); push({ op: 'settings', settings: s }); setShowSettings(false); }}
           online={sync.mode !== 'local' && sync.mode !== 'checking'}
+          push={pushStatus}
+          onEnablePush={enableNotifications}
+          onDisablePush={disableNotifications}
+          onTestPush={() => sendTestPush().then(() => flash('Notification de test envoyée.')).catch((e) => flash(e.message))}
           onLogout={logout}
           onExport={doExport}
           onImport={doImport}

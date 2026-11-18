@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
-import { X, Download, Upload, Cloud, LogOut } from 'lucide-react';
+import { X, Download, Upload, Cloud, LogOut, BellRing, BellOff } from 'lucide-react';
 
-export default function Settings({ settings, onSave, onClose, onExport, onImport, online, onLogout }) {
+export default function Settings({ settings, onSave, onClose, onExport, onImport, online, onLogout, push, onEnablePush, onDisablePush, onTestPush }) {
   const [s, setS] = useState(settings);
   const fileRef = useRef(null);
   const num = (k) => (e) => setS({ ...s, [k]: Number(e.target.value) });
@@ -26,6 +26,25 @@ export default function Settings({ settings, onSave, onClose, onExport, onImport
             {[15, 30, 60, 120, 240].map((m) => <option key={m} value={m}>{m < 60 ? `${m} minutes` : `${m / 60} h`}</option>)}
           </select>
         </label>
+
+        <h4 className="section-label">Notifications sur ce téléphone</h4>
+        {!online ? (
+          <p className="muted small">Les rappels du matin et du soir nécessitent la version en ligne de l'application.</p>
+        ) : push === 'on' ? (
+          <>
+            <p className="muted small server-line"><BellRing size={14} />Activées : programme du jour à {s.morningHour}h, bilan à {s.eveningHour}h, même application fermée.</p>
+            <div className="row">
+              <button type="button" className="btn ghost" onClick={onTestPush}>Tester</button>
+              <button type="button" className="btn ghost" onClick={onDisablePush}><BellOff size={16} />Désactiver</button>
+            </div>
+          </>
+        ) : push === 'denied' ? (
+          <p className="muted small">Notifications bloquées pour ce site. Dans Chrome : ⋮ → Paramètres → Paramètres des sites → Notifications, autorisez agenda-travail-rdv.vercel.app.</p>
+        ) : push === 'unsupported' ? (
+          <p className="muted small">Ce navigateur ne gère pas les notifications. Ouvrez l'application dans Chrome.</p>
+        ) : (
+          <button type="button" className="btn primary" onClick={onEnablePush}><BellRing size={16} />Activer les rappels de {s.morningHour}h et {s.eveningHour}h</button>
+        )}
 
         <h4 className="section-label">Sauvegarde</h4>
         {online ? (
