@@ -7,6 +7,7 @@ export default async function handler(req, res) {
     server: 'ok',
     password: process.env.APP_PASSWORD ? 'configuré' : 'manquant (ajoutez APP_PASSWORD)',
     database: 'non testée',
+    assistant: process.env.ANTHROPIC_API_KEY ? 'Claude configuré' : 'assistant simple (ANTHROPIC_API_KEY absente)',
   };
   if (!(process.env.DATABASE_URL || process.env.POSTGRES_URL)) {
     out.database = 'manquante (reliez Neon au projet : DATABASE_URL absent)';
